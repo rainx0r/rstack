@@ -1,0 +1,17 @@
+{
+    "name": "rainx0r",
+    "owner": {
+        "name": "rain"
+    },
+    "metadata": {
+        "description": "Personal workflow plugins."
+    },
+    "plugins": [
+        {
+            "name": "rstack",
+            "source": "./",
+            "description": "AI research workflow skills.",
+            "version": "0.1.0"
+        }
+    ]
+}

@@ -1,0 +1,11 @@
+{
+    "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+    "name": "rstack",
+    "description": "AI research workflow skills.",
+    "version": "0.1.0",
+    "author": {
+        "name": "rainx0r",
+        "email": "angel@latent.dev"
+    },
+    "repository": "https://gtihub.com/rainx0r/rstack"
+}
