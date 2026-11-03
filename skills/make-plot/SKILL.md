@@ -111,17 +111,17 @@ Sentence case, the plain-language name of the quantity, with units in parenthese
 E.g. "Number of environment steps", "Success rate", "Dormant neuron ratio (%)", "Wall-clock time (h)".
 Never a raw metric key or a bare symbol.
 
-### Ticks
+### Domains and ticks
 
-About 5 ticks per axis (from the theme).
-Large counts use `pk.si_axis()`: 500K, 2M, 1.5B.
+Use 5–10 labelled ticks, depending on figure width (about one per 100 px). Unlabelled ticks between them are fine and help reading values.
+The x axis ends exactly where the data ends, with no empty space after it, and that end is always labelled.
+In `pk.figure`, panels share an x range by default, `share_x=False` lets each panel end at its own data.
+Don't hand-set x domains or pad them; pass `x_scale`/`x_axis` only when the user asks for a specific range.
+Large counts use SI labels (500K, 2M, 1.5B); the default x axis does this. Use `pk.si_axis()` for other axes.
 Ratios stored as 0–1 use `pk.percent_axis()`.
-Log axes for exponentially growing quantities (e.g. parameters, FLOPs, compute, and learning rate), with `values=pk.log_ticks(lo, hi)`.
-
-### Domains
+Log axes are for exponentially growing quantities (parameters, FLOPs, compute, learning rate): `points(..., x_log=True)` (`pk.log_axis`).
 
 Set the y domain explicitly when it sharpens the comparison: `[0, 1]` for rates, or zoomed to where methods differ. Keep it the same for the same metric across a figure set.
-Pad log x domains by about 15% so end markers aren't cut off.
 
 ### Grid
 

@@ -459,6 +459,83 @@ def log_ticks(
     return out
 
 
+_TICK_TAG = "rstack-ticks"   # axis description marker; pk.figure uses it to align x ends
+
+
+def nice_ticks(
+    lo: float, hi: float, width: float, min_labels: int = 5, max_labels: int = 10
+) -> tuple[tuple[float, float], list[float], list[float]]:
+    """Domain, all tick values, and labelled tick values for a linear axis.
+
+    The domain ends exactly at the data max (hi), which is always a labelled tick
+    (e.g. 18.7M). Other labels sit on a 1-2-2.5-5 step from the start; one too close to
+    the end is dropped in its favour. As many labels as fit at ~100 px each, clamped to
+    [min_labels, max_labels]. One unlabelled tick sits between neighbouring labels.
+    """
+    n_max = int(np.clip(round(width / 100), min_labels, max_labels))
+    span = hi - lo if hi > lo else (abs(hi) or 1.0)
+    e0 = int(np.floor(np.log10(span))) - 2
+    steps = sorted(m * 10.0**e for e in range(e0, e0 + 5) for m in (1, 2, 2.5, 5))
+    for step in steps:
+        start = float(np.floor(lo / step + 1e-9) * step)
+        majors = [start + i * step for i in range(int(np.floor((hi - start) / step + 1e-9)) + 1)]
+        if hi - majors[-1] > 1e-9 * step:          # data doesn't end on a step
+            if (hi - majors[-1]) / (hi - start) * width < 70:   # labels would crowd
+                majors.pop()
+            majors.append(hi)
+        if len(majors) <= n_max:
+            break
+    majors = [float(round(v, 12)) for v in majors]
+    minors = [
+        (a + b) / 2 for a, b in zip(majors, majors[1:]) if b - a > 0.75 * step
+    ]
+    values = sorted({*majors, *(float(round(v, 12)) for v in minors)})
+    return (start, float(hi)), values, majors
+
+
+def linear_axis(
+    lo: float, hi: float, width: float, fmt: Literal["si", "percent", "number"] = "si"
+) -> tuple[alt.Scale, alt.Axis]:
+    """Scale + axis for a linear x (or y) per nice_ticks: domain from the start tick to
+    exactly the data max, labelled ticks (the end always labelled), shorter unlabelled
+    ticks in between. Used by default for x in curves()/points()."""
+    (start, end), values, majors = nice_ticks(lo, hi, width)
+    major = f"indexof({json.dumps(majors)}, datum.value) >= 0"
+    label = {
+        "si": SI_LABEL_EXPR,
+        "percent": "format(datum.value, '.0%')",
+        "number": "format(datum.value, '.3~f')",
+    }[fmt]
+    axis = alt.Axis(
+        values=values,
+        tickCount=len(values),   # else Vega thins explicit values down to the theme's count
+        labelExpr=f"{major} ? ({label}) : ''",
+        tickSize={"condition": {"test": major, "value": 5}, "value": 3},
+        gridOpacity={"condition": {"test": major, "value": 1}, "value": 0.45},
+        description=f"{_TICK_TAG}:{fmt}",
+    )
+    return alt.Scale(domain=[start, end], nice=False, zero=False), axis
+
+
+def log_axis(lo: float, hi: float, width: float = SIZES["default"][0]) -> tuple[alt.Scale, alt.Axis]:
+    """Scale + axis for a log x: domain exactly [data min, data max], both ends labelled,
+    1-2-5 ticks in between (powers of ten only if that's over 8 labels). Interior ticks
+    closer than ~70 px to an end are dropped so labels don't collide."""
+    inner = log_ticks(lo, hi)
+    if len(inner) > 8:
+        inner = log_ticks(lo, hi, mantissas=(1,))
+    px_per_decade = width / max(np.log10(hi / lo), 1e-9)
+    gap = 70 / px_per_decade
+    inner = [
+        t for t in inner
+        if np.log10(t / lo) > gap and np.log10(hi / t) > gap
+    ]
+    values = [float(lo), *inner, float(hi)]
+    return alt.Scale(type="log", domain=[lo, hi], nice=False), si_axis(
+        values=values, tickCount=len(values)
+    )
+
+
 # ---------------------------------------------------------------------------
 # Data shaping and statistics
 # ---------------------------------------------------------------------------
@@ -687,6 +764,15 @@ def _hover(
     return [rule, dots]
 
 
+def _default_x(col: pl.Series, x_scale, x_axis, width: float, log: bool):
+    """Explicit x_scale/x_axis win; otherwise nice ticks fitted to the data range."""
+    if x_scale is not None or x_axis is not None:
+        xs = x_scale if x_scale is not None else alt.Scale(zero=False, nice=False)
+        return xs, (x_axis if x_axis is not None else si_axis())
+    lo, hi = float(col.min()), float(col.max())
+    return log_axis(lo, hi, width) if log else linear_axis(lo, hi, width)
+
+
 def curves(
     agg: pl.DataFrame,
     *,
@@ -711,9 +797,8 @@ def curves(
 
     hover=True adds a nearest-x rule and tooltip, active only in HTML.
     """
-    x_axis = x_axis if x_axis is not None else si_axis()
+    xs, x_axis = _default_x(agg[x], x_scale, x_axis, SIZES[size][0], log=False)
     y_axis = y_axis if y_axis is not None else alt.Axis()
-    xs = x_scale if x_scale is not None else alt.Scale(nice=False, zero=False)
     ys = y_scale if y_scale is not None else alt.Scale(zero=False)
     enc_x = alt.X(f"{x}:Q", title=x_title, scale=xs, axis=x_axis)
     enc = {"x": enc_x}
@@ -778,16 +863,17 @@ def points(
     y_axis: alt.Axis | None = None,
     connect: bool = True,
     shapes: bool = False,
+    x_log: bool = False,
     size: str = "default",
 ) -> alt.LayerChart:
     """Point + error bar per (group, x), optionally connected. For more sparse data.
 
     shapes=True adds marker shape as a second encoding of group; only when asked.
+    x_log=True for parameters, FLOPs, compute, learning rate.
     Points carry tooltips (active in HTML).
     """
-    x_axis = x_axis if x_axis is not None else si_axis()
+    xs, x_axis = _default_x(agg[x], x_scale, x_axis, SIZES[size][0], log=x_log)
     y_axis = y_axis if y_axis is not None else alt.Axis()
-    xs = x_scale if x_scale is not None else alt.Scale(zero=False)
     ys = y_scale if y_scale is not None else alt.Scale(zero=False)
     enc = {"x": alt.X(f"{x}:Q", title=x_title, scale=xs, axis=x_axis)}
     tips = [
@@ -816,10 +902,10 @@ def points(
     else:
         enc["color"] = alt.value(OURS)
     base = alt.Chart(agg).encode(**enc)
-    err = base.mark_errorbar(ticks=True, clip=True).encode(
+    err = base.mark_errorbar(ticks=True).encode(
         y=alt.Y("lo:Q", scale=ys, title=y_title), y2="hi:Q"
     )
-    pts = base.mark_point(clip=True).encode(
+    pts = base.mark_point().encode(
         y=alt.Y("center:Q", title=y_title, scale=ys, axis=y_axis), tooltip=tips
     )
     layers = [err]
@@ -925,6 +1011,35 @@ def _drop_axis_title(chart, ch: str) -> None:
             e.title = None
 
 
+def _tagged_x(chart):
+    """Yield (encoding.x, fmt) for layers whose x axis came from linear_axis()."""
+    for c in _walk_layers(chart):
+        enc = getattr(c, "encoding", alt.Undefined)
+        e = getattr(enc, "x", alt.Undefined) if enc is not alt.Undefined else alt.Undefined
+        if e is alt.Undefined:
+            continue
+        axis = e._get("axis")
+        desc = axis._get("description") if hasattr(axis, "_get") else alt.Undefined
+        if isinstance(desc, str) and desc.startswith(_TICK_TAG):
+            yield e, desc.split(":", 1)[1]
+
+
+def _shared_x_range(panels) -> tuple[float, float] | None:
+    ranges = []
+    for p in panels:
+        tagged = list(_tagged_x(p))
+        if not tagged:
+            return None
+        ranges.append(tagged[0][0]._get("scale")._get("domain"))
+    return min(r[0] for r in ranges), max(r[1] for r in ranges)
+
+
+def _retick_x(chart, lo: float, hi: float, width: float):
+    for e, fmt in _tagged_x(chart):
+        e.scale, e.axis = linear_axis(lo, hi, width, fmt)
+    return chart
+
+
 def _rendered_size(chart) -> tuple[float, float]:
     svg = vlc.vegalite_to_svg(chart.to_dict())
     m = re.search(r'<svg[^>]*width="([\d.]+)"[^>]*height="([\d.]+)"', svg)
@@ -940,6 +1055,7 @@ def figure(
     shared_legend: bool = True,
     legend_orient: Literal["bottom", "top", "right"] = "bottom",
     share_y: bool = False,
+    share_x: bool = True,
     canvas: tuple[int, int] | None = SLIDE,
 ) -> alt.ConcatChart:
     """Grid of panels (up to 3 per row, 2 rows) with one shared legend and optional titles.
@@ -992,7 +1108,17 @@ def figure(
             out.append(c)
         return out
 
+    # Panels with plotkit's default x ticks all end on the same labelled tick: the
+    # largest end across panels (re-ticked for the final panel width).
+    x_range = _shared_x_range(panels) if share_x else None
+
     def build(ps: list, cols: int, w: float, h: float) -> alt.ConcatChart:
+        # Re-tick x for the final panel width: shared range, or each panel's own.
+        ps = [
+            _retick_x(c.copy(deep=True), *(x_range or _shared_x_range([c]) or (0, 0)), w)
+            if (x_range or _shared_x_range([c])) else c
+            for c in ps
+        ]
         ps = [c.properties(width=round(w), height=round(h)) for c in ps]
         fig = alt.concat(*ps, columns=cols, spacing=_SPACING)
         res = (
@@ -1113,12 +1239,14 @@ def save(
     interactive: hover tooltips, plus zoom/pan on every panel.
     """
     path = Path(path)
+    # Keep dots in names ("run_18.7M"); only strip a real format suffix.
+    stem = path.stem if path.suffix.lstrip(".") in {"png", "svg", "pdf", "html", "json"} else path.name
     path.parent.mkdir(parents=True, exist_ok=True)
     vg = _to_vega(chart)
     css = _font_face_css()
     out = []
     for fmt in formats:
-        p = path.with_suffix(f".{fmt}")
+        p = path.parent / f"{stem}.{fmt}"
         if fmt == "svg":
             svg = vlc.vega_to_svg(vg)
             if css:
