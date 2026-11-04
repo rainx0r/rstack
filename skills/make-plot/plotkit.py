@@ -205,11 +205,13 @@ SHAPES = [
     "triangle-left",
 ]
 DASHES = [[1, 0], [6, 3], [2, 2], [8, 3, 2, 3], [4, 4], [1, 3]]
-_SEQ_STOPS = [400, 500, 600, 700, 800, 900]
+_SEQ_STOPS = [600, 700, 800, 900]
+_SEQ_MAX_LEVELS = 6
 
 # Statistics / smoothing policy
 IQM_MIN_SEEDS = 5  # >= this many seeds -> IQM + IQR, else mean + 95% CI
 SMOOTH_MIN_POINTS = 100  # curves with fewer logged points are never smoothed
+SPARSE_MAX_POINTS = 30  # curves with at most this many points get markers
 SMOOTH_SPAN_FRAC = 1 / 20  # EMA span = this fraction of points per curve
 
 
@@ -224,16 +226,19 @@ def categorical(n: int) -> list[str]:
 
 
 def sequential(n: int) -> list[str]:
-    """n shades for ordered sweeps."""
-    if n > len(_SEQ_STOPS):
+    if n > _SEQ_MAX_LEVELS:
         raise ValueError(
-            f"{n} levels > {len(_SEQ_STOPS)} shades; use a continuous scale"
+            f"{n} levels > {_SEQ_MAX_LEVELS} shades; use a continuous scale"
         )
     if n == 1:
         return [OURS]
-    lo, hi = (1, 5) if n <= 5 else (0, 5)
-    idx = np.round(np.linspace(lo, hi, n)).astype(int)
-    return [COLORS["primary"][_SEQ_STOPS[i]] for i in idx]
+    stops = [COLORS["primary"][s].lstrip("#") for s in _SEQ_STOPS]
+    channels = [[int(h[i : i + 2], 16) for h in stops] for i in (0, 2, 4)]
+    positions = np.linspace(0, len(stops) - 1, n)
+    mixed = [np.interp(positions, range(len(stops)), ch) for ch in channels]
+    return [
+        "#" + "".join(f"{round(float(ch[i])):02X}" for ch in mixed) for i in range(n)
+    ]
 
 
 def color_scale(
@@ -459,7 +464,7 @@ def log_ticks(
     return out
 
 
-_TICK_TAG = "rstack-ticks"   # axis description marker; pk.figure uses it to align x ends
+_TICK_TAG = "rstack-ticks"  # axis description marker; pk.figure uses it to align x ends
 
 
 def nice_ticks(
@@ -478,17 +483,18 @@ def nice_ticks(
     steps = sorted(m * 10.0**e for e in range(e0, e0 + 5) for m in (1, 2, 2.5, 5))
     for step in steps:
         start = float(np.floor(lo / step + 1e-9) * step)
-        majors = [start + i * step for i in range(int(np.floor((hi - start) / step + 1e-9)) + 1)]
-        if hi - majors[-1] > 1e-9 * step:          # data doesn't end on a step
-            if (hi - majors[-1]) / (hi - start) * width < 70:   # labels would crowd
+        majors = [
+            start + i * step
+            for i in range(int(np.floor((hi - start) / step + 1e-9)) + 1)
+        ]
+        if hi - majors[-1] > 1e-9 * step:  # data doesn't end on a step
+            if (hi - majors[-1]) / (hi - start) * width < 70:  # labels would crowd
                 majors.pop()
             majors.append(hi)
         if len(majors) <= n_max:
             break
     majors = [float(round(v, 12)) for v in majors]
-    minors = [
-        (a + b) / 2 for a, b in zip(majors, majors[1:]) if b - a > 0.75 * step
-    ]
+    minors = [(a + b) / 2 for a, b in zip(majors, majors[1:]) if b - a > 0.75 * step]
     values = sorted({*majors, *(float(round(v, 12)) for v in minors)})
     return (start, float(hi)), values, majors
 
@@ -508,7 +514,9 @@ def linear_axis(
     }[fmt]
     axis = alt.Axis(
         values=values,
-        tickCount=len(values),   # else Vega thins explicit values down to the theme's count
+        tickCount=len(
+            values
+        ),  # else Vega thins explicit values down to the theme's count
         labelExpr=f"{major} ? ({label}) : ''",
         tickSize={"condition": {"test": major, "value": 5}, "value": 3},
         gridOpacity={"condition": {"test": major, "value": 1}, "value": 0.45},
@@ -517,7 +525,9 @@ def linear_axis(
     return alt.Scale(domain=[start, end], nice=False, zero=False), axis
 
 
-def log_axis(lo: float, hi: float, width: float = SIZES["default"][0]) -> tuple[alt.Scale, alt.Axis]:
+def log_axis(
+    lo: float, hi: float, width: float = SIZES["default"][0]
+) -> tuple[alt.Scale, alt.Axis]:
     """Scale + axis for a log x: domain exactly [data min, data max], both ends labelled,
     1-2-5 ticks in between (powers of ten only if that's over 8 labels). Interior ticks
     closer than ~70 px to an end are dropped so labels don't collide."""
@@ -526,10 +536,7 @@ def log_axis(lo: float, hi: float, width: float = SIZES["default"][0]) -> tuple[
         inner = log_ticks(lo, hi, mantissas=(1,))
     px_per_decade = width / max(np.log10(hi / lo), 1e-9)
     gap = 70 / px_per_decade
-    inner = [
-        t for t in inner
-        if np.log10(t / lo) > gap and np.log10(hi / t) > gap
-    ]
+    inner = [t for t in inner if np.log10(t / lo) > gap and np.log10(hi / t) > gap]
     values = [float(lo), *inner, float(hi)]
     return alt.Scale(type="log", domain=[lo, hi], nice=False), si_axis(
         values=values, tickCount=len(values)
@@ -790,11 +797,14 @@ def curves(
     x_axis: alt.Axis | None = None,
     y_axis: alt.Axis | None = None,
     dashes: bool = False,
+    markers: bool | None = None,
     hover: bool = True,
     size: str = "default",
 ) -> alt.LayerChart:
     """Line (center) + band (lo..hi) per group.
 
+    markers: a dot on each data point. None (default) adds them to sparse curves, with
+    at most SPARSE_MAX_POINTS points (e.g. periodic evals); True/False forces it.
     hover=True adds a nearest-x rule and tooltip, active only in HTML.
     """
     xs, x_axis = _default_x(agg[x], x_scale, x_axis, SIZES[size][0], log=False)
@@ -829,6 +839,12 @@ def curves(
         y=alt.Y("center:Q", title=y_title, scale=ys, axis=y_axis)
     )
     layers = [band, line]
+    if markers is None:
+        per_curve = agg.group_by(group).len()["len"].max() if group else agg.height
+        markers = per_curve <= SPARSE_MAX_POINTS
+    if markers:
+        # Not clipped: the axis ends at the data, so the last marker sits on the edge.
+        layers.append(base.mark_point(opacity=1).encode(y=alt.Y("center:Q", scale=ys)))
     if hover:
         layers += _hover(
             agg,
@@ -905,7 +921,7 @@ def points(
     err = base.mark_errorbar(ticks=True).encode(
         y=alt.Y("lo:Q", scale=ys, title=y_title), y2="hi:Q"
     )
-    pts = base.mark_point().encode(
+    pts = base.mark_point(opacity=1).encode(
         y=alt.Y("center:Q", title=y_title, scale=ys, axis=y_axis), tooltip=tips
     )
     layers = [err]
@@ -1015,7 +1031,11 @@ def _tagged_x(chart):
     """Yield (encoding.x, fmt) for layers whose x axis came from linear_axis()."""
     for c in _walk_layers(chart):
         enc = getattr(c, "encoding", alt.Undefined)
-        e = getattr(enc, "x", alt.Undefined) if enc is not alt.Undefined else alt.Undefined
+        e = (
+            getattr(enc, "x", alt.Undefined)
+            if enc is not alt.Undefined
+            else alt.Undefined
+        )
         if e is alt.Undefined:
             continue
         axis = e._get("axis")
@@ -1115,8 +1135,11 @@ def figure(
     def build(ps: list, cols: int, w: float, h: float) -> alt.ConcatChart:
         # Re-tick x for the final panel width: shared range, or each panel's own.
         ps = [
-            _retick_x(c.copy(deep=True), *(x_range or _shared_x_range([c]) or (0, 0)), w)
-            if (x_range or _shared_x_range([c])) else c
+            _retick_x(
+                c.copy(deep=True), *(x_range or _shared_x_range([c]) or (0, 0)), w
+            )
+            if (x_range or _shared_x_range([c]))
+            else c
             for c in ps
         ]
         ps = [c.properties(width=round(w), height=round(h)) for c in ps]
@@ -1240,7 +1263,11 @@ def save(
     """
     path = Path(path)
     # Keep dots in names ("run_18.7M"); only strip a real format suffix.
-    stem = path.stem if path.suffix.lstrip(".") in {"png", "svg", "pdf", "html", "json"} else path.name
+    stem = (
+        path.stem
+        if path.suffix.lstrip(".") in {"png", "svg", "pdf", "html", "json"}
+        else path.name
+    )
     path.parent.mkdir(parents=True, exist_ok=True)
     vg = _to_vega(chart)
     css = _font_face_css()

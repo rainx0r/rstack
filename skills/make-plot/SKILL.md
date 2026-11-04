@@ -88,13 +88,14 @@ The hue representing the main result is always `pk.OURS`, first in the legend.
 A single baseline or control is `pk.BASELINE`. `pk.categorical(2)` retreives `pk.OURS` and `pk.BASELINE`.
 Three or more conditions use `pk.categorical(n)` in its fixed order: blue, pink, green, amber, red, slate, navy, crimson.
 Text is pure black in the light theme.
-Ordered sweeps use `pk.sequential(n)`. Never categorical colours for an ordered variable.
+Ordered sweeps use `pk.sequential(n)`: up to 6 shades.
 Reference lines use `pk.reference(value, label)`, and are not in the legend.
 Pin colours to names: always pass `order=` (primary first) or `colors={name: hex}`, so a condition keeps its colour across every figure in a set.
 
 ### Marks
 
 Colour alone distinguishes groups.
+Curves with few data points (30 or fewer, e.g. sparse eval metrics) get a marker on each point automatically; `curves(markers=True/False)` overrides this. Use `curves` for metrics over time and `points` when each x is a separate condition that needs error bars.
 Add marker shapes (`points(shapes=True)`) or dashes (`curves(dashes=True)`) only when the user asks, e.g. for greyscale print.
 
 ## Presentation rules
