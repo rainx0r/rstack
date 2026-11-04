@@ -1,6 +1,6 @@
 ---
 name: make-plot
-description: Style and workflow for figures. Use whenever plotting results from running experiments, fetching wandb results, making a figure for a paper, presentation, report or Notion page, or restyling an existing plot. It takes precedence over any generic dataviz skills.
+description: Style and workflow for figures. Use for /make-plot, whenever plotting results from running experiments, fetching wandb results, making a figure for a paper, presentation, report or Notion page, or restyling an existing plot. It takes precedence over any generic dataviz skills.
 ---
 
 # make-plot
