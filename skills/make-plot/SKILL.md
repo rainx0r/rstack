@@ -5,18 +5,29 @@ description: Style and workflow for figures. Use whenever plotting results from 
 
 # make-plot
 
-Every figure should look like it came from the same paper. The design system is
-fixed. Don't improvise on fonts, colours, sizes, grid or legend style. If a figure
-seems to need something new, say so and propose a change to the system instead of
+Use [`plotkit.py`](scripts/plotkit.py) in this skill's folder. It's a `uv` script. Figure scripts are run through it, and it is by default not copied into projects.
+
+Usage:
+
+```sh
+    uv run <skill_dir>/scripts/plotkit.py fig.py [args...]
+    uv run --with wandb <skill_dir>/scripts/plotkit.py fig.py      # extra deps via --with
+```
+
+Inside the figure script:
+
+```py
+    import plotkit as pk
+    pk.enable()                      # or pk.enable(theme="dark", transparent=True)
+    df, _ = pk.ema(df, x="step", y="return", seed="seed", by="algo")
+    agg = pk.aggregate(df, x="step", y="return", seed="seed", by="algo")
+    chart = pk.curves(agg, x="step", group="algo", order=["Ours", "PPO"],
+                      x_title="Number of environment steps", y_title="Episode return")
+    pk.save(chart, "out/learning_curves")        # -> out/learning_curves.png
+```
+
+If a figure seems to need something new, say so and propose a change to the system instead of
 one-off styling.
-
-[`plotkit.py`](plotkit.py) in this skill's folder does the mechanical work:
-- design tokens and the theme
-- fonts
-- statistics, alignment and smoothing
-- chart builders and export
-
-It's a uv script, so the only requirement is `uv`. Figure scripts are run through it, and it is never copied into projects.
 
 ## Workflow
 
@@ -29,13 +40,9 @@ It's a uv script, so the only requirement is `uv`. Figure scripts are run throug
    - For wandb: use `run.history(keys=[...], samples=N)`, not `scan_history`, and filter to finished runs.
 3. Shape the data: `pk.ema` (curves only), then `pk.aggregate`. Alignment of seeds that log at different steps happens inside `aggregate`. Use these instead of hand-rolled statistics or Vega-Lite's `extent="ci"` bands.
 4. Build the chart: `pk.enable()`, then `pk.curves(...)`, `pk.points(...)`, or plain Altair with the `pk` tokens.
-5. Run it:
-   ```bash
-   uv run <this skill's dir>/plotkit.py path/to/fig.py
-   uv run --with wandb <this skill's dir>/plotkit.py path/to/fig.py   # extra deps via --with
-   ```
+5. Run it.
 6. Look at the PNG yourself first and fix anything that fails the checklist below. Don't show the user a figure you haven't checked.
-7. Send the PNG into the chat with the file-sharing tool (e.g. `SendUserFile`), unless the user said to put it somewhere else. Send the figure itself, with no description of the statistics, smoothing or method; the user asks if they want those details.
+7. Send the PNG into the chat with the file-sharing tool (e.g. `SendUserFile`), unless the user said to put it somewhere else.
 
 ## Formats
 
@@ -49,16 +56,12 @@ It's a uv script, so the only requirement is `uv`. Figure scripts are run throug
 | `html` | Interactive by default. Self-contained and works offline (Vega bundled, about 1 MB). |
 | `json` | Vega-Lite spec, for diffing figure changes. |
 
-## Font
-
-Font is Times New Roman, which matches LaTeX body text. Where Times isn't installed, Tinos is fetched once into `~/.cache/rstack/fonts`.
-
 ## Themes
 
 `pk.enable(theme, transparent)` usage:
 - `theme="light"` (default): white background, black text, light grey grid.
-- `theme="dark"`: e.g. for slides or a dark site. Light text, dark grid and a near-black background. The single-baseline and reference-line greys get lighter (grey 500), and bands get more opaque so they stay visible.
-- `transparent=True`: no background fill, with either theme, for figures placed on a coloured page.
+- `theme="dark"`: Light text, dark grid and a near-black background.
+- `transparent=True`: no background fill.
 
 ## Design system
 
@@ -83,11 +86,8 @@ Never change font sizes per chart. Pick a size preset instead.
 
 ### Colour
 
-Palette (`pk.COLORS`): primary starts at 500, other hues start at their 600 shade.
 The hue representing the main result is always `pk.OURS`, first in the legend.
-A single baseline or control is `pk.BASELINE`. `pk.categorical(2)` retreives `pk.OURS` and `pk.BASELINE`.
-Three or more conditions use `pk.categorical(n)` in its fixed order: blue, pink, green, amber, red, slate, navy, crimson.
-Text is pure black in the light theme.
+A single baseline or control is `pk.BASELINE`. `pk.categorical(2)` retrieves `pk.OURS` and `pk.BASELINE`. Three or more conditions use `pk.categorical(n)` in its fixed order.
 Ordered sweeps use `pk.sequential(n)`: up to 6 shades.
 Reference lines use `pk.reference(value, label)`, and are not in the legend.
 Pin colours to names: always pass `order=` (primary first) or `colors={name: hex}`, so a condition keeps its colour across every figure in a set.
@@ -114,19 +114,13 @@ Never a raw metric key or a bare symbol.
 
 ### Domains and ticks
 
-Use 5–10 labelled ticks, depending on figure width (about one per 100 px). Unlabelled ticks between them are fine and help reading values.
-The x axis ends exactly where the data ends, with no empty space after it, and that end is always labelled.
+Use 5–10 labelled ticks, depending on figure width (about one per 100 px). Unlabelled ticks between them are fine and help reading values. X axis ends on the last tick, which is always labelled.
 In `pk.figure`, panels share an x range by default, `share_x=False` lets each panel end at its own data.
-Don't hand-set x domains or pad them; pass `x_scale`/`x_axis` only when the user asks for a specific range.
 Large counts use SI labels (500K, 2M, 1.5B); the default x axis does this. Use `pk.si_axis()` for other axes.
 Ratios stored as 0–1 use `pk.percent_axis()`.
 Log axes are for exponentially growing quantities (parameters, FLOPs, compute, learning rate): `points(..., x_log=True)` (`pk.log_axis`).
 
 Set the y domain explicitly when it sharpens the comparison: `[0, 1]` for rates, or zoomed to where methods differ. Keep it the same for the same metric across a figure set.
-
-### Grid
-
-The theme's light solid grid, x and y domain lines, and no plot border. Don't override it.
 
 ### Legend
 
@@ -144,9 +138,9 @@ pk.save(fig, "out/per_task")
 ```
 
 - Layout: up to 3 panels per row and 2 rows (`columns=` overrides). With more than 6 panels, split the figure as it's unlikely to fit into a slide.
-- Size: panel size is fitted so a full 2×3 grid fills `canvas=`, a 16:9 slide by default (1280×720, exported at 3840×2160). Smaller grids keep that same panel size and come out shorter rather than stretched. `canvas=None` keeps each panel's own size, e.g. for a paper.
+- Size: panel size is fitted so a full 2×3 grid fills `canvas=`, a 16:9 slide by default. Smaller grids shorter rather than stretched. `canvas=None` keeps each panel's own size, e.g. for a paper.
 - Legend: one shared, centred legend below the grid (`legend_orient=`), as long as panels use the same colour domain. Pass the same `order=` to every panel.
-- Figure title: `title=` gives one centred above the grid, under the same rules as plot titles.
+- Figure title: `title=` gives one centred above the grid.
 - Panel titles: `panel_titles=` only when asked for, or when panels would otherwise be indistinguishable (same metric, different task or setting). Panels that differ in y metric are already told apart by their y titles.
 - Axis titles shown once: when every panel has the same axis title, the y title appears only on the first column and the x title only on the bottom row.
 - Shared y: `share_y=True` when panels show the same metric, so heights compare directly.
