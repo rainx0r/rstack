@@ -10,20 +10,20 @@ Use [`plotkit.py`](scripts/plotkit.py) in this skill's folder. It's a `uv` scrip
 Usage:
 
 ```sh
-    uv run <skill_dir>/scripts/plotkit.py fig.py [args...]
-    uv run --with wandb <skill_dir>/scripts/plotkit.py fig.py      # extra deps via --with
+uv run scripts/plotkit.py fig.py [args...]
+uv run --with wandb scripts/plotkit.py fig.py      # extra deps via --with
 ```
 
 Inside the figure script:
 
 ```py
-    import plotkit as pk
-    pk.enable()                      # or pk.enable(theme="dark", transparent=True)
-    df, _ = pk.ema(df, x="step", y="return", seed="seed", by="algo")
-    agg = pk.aggregate(df, x="step", y="return", seed="seed", by="algo")
-    chart = pk.curves(agg, x="step", group="algo", order=["Ours", "PPO"],
-                      x_title="Number of environment steps", y_title="Episode return")
-    pk.save(chart, "out/learning_curves")        # -> out/learning_curves.png
+import plotkit as pk
+pk.enable()                      # or pk.enable(theme="dark", transparent=True)
+df, _ = pk.ema(df, x="step", y="return", seed="seed", by="algo")
+agg = pk.aggregate(df, x="step", y="return", seed="seed", by="algo")
+chart = pk.curves(agg, x="step", group="algo", order=["Ours", "PPO"],
+                  x_title="Number of environment steps", y_title="Episode return")
+pk.save(chart, "out/learning_curves")        # -> out/learning_curves.png
 ```
 
 If a figure seems to need something new, say so and propose a change to the system instead of
