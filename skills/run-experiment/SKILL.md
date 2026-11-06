@@ -1,6 +1,6 @@
 ---
 name: run-experiment
-description: Run an experiment. Gather context, sanity check the setup, plan the runs and logging, give the user a rundown, load the relevant compute skill to run it, and confirm the results in wandb. Use for /run-experiment, 'run an experiment to', or when an experiment has been designed or a very clear hypothesis has been formed that requires experiments on compute resources to verify.
+description: Run an experiment. Gather context, sanity check the setup, plan the runs and logging, give the user a rundown, load the relevant compute skill to run it, and confirm the results in wandb. Use for /run-experiment, 'run an experiment to', or when the user asks to run an experiment on a compute resource.
 ---
 
 # run-experiment
@@ -18,9 +18,9 @@ Workflow:
 
 ## Check the experiment setup
 
-Running an experiment depends on already having a very clear hypothesis to test, and code to run. If neither are clear (e.g. skill was invoked with a very vague prompt), defer the user to the `rstack:design-experiment` skill and do not run the experiment.
+Running an experiment depends on already having a very clear hypothesis to test or question to answer, and code to run. If neither are clear (e.g. skill was invoked with a very vague prompt and no experiment entrypoint exists), defer the user to the `rstack:design-experiment` skill and do not run the experiment.
 
-Also check the project's `AGENTS.md`, or `EXPERIMENTS.md`, if either file exists, for additional context and instructions.
+Also check the project's `AGENTS.md`, or `EXPERIMENTS.md`, if either file exists, for additional context and instructions, e.g. fany experiment trackers to update or where to describe the final results.
 
 If the user did not explicitly specify which compute to use, and it is not trivially inferrable from surrounding context (e.g. previous skill invocations in the same thread), ask.
 
