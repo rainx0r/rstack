@@ -6,7 +6,8 @@ My personal stack of agent skills for AI research. This is opinionated and speci
 
 | Skill name | Description |
 | --- | --- |
-| design-experiment | Help the user design an experiment and implement it. Also initialises project's experiment playbook if not already present |
+| design-experiment | Help the user design an experiment and implement it |
+| create-experiment-playbook | Initialise the project's experiment playbook |
 | run-experiment | Run the experiment on a compute resource |
 | estimate-runtime | Estimate an experiment's runtime by checking its throughput metric on the compute it will run on |
 | use-isambard | Compute skill for the Isambard academic compute cluster |
