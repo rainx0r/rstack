@@ -205,7 +205,7 @@ SHAPES = [
     "triangle-left",
 ]
 DASHES = [[1, 0], [6, 3], [2, 2], [8, 3, 2, 3], [4, 4], [1, 3]]
-_SEQ_STOPS = [600, 700, 800, 900]
+_SEQ_STOPS = {"light": [600, 700, 800, 900], "dark": [700, 600, 500, 400, 300]}
 _SEQ_MAX_LEVELS = 6
 
 # Statistics / smoothing policy
@@ -226,13 +226,14 @@ def categorical(n: int) -> list[str]:
 
 
 def sequential(n: int) -> list[str]:
+    """n shades for an ordered sweep, lowest value first, for the active theme. Call after enable()"""
     if n > _SEQ_MAX_LEVELS:
         raise ValueError(
             f"{n} levels > {_SEQ_MAX_LEVELS} shades; use a continuous scale"
         )
     if n == 1:
         return [OURS]
-    stops = [COLORS["primary"][s].lstrip("#") for s in _SEQ_STOPS]
+    stops = [COLORS["primary"][s].lstrip("#") for s in _SEQ_STOPS[_state["theme"]]]
     channels = [[int(h[i : i + 2], 16) for h in stops] for i in (0, 2, 4)]
     positions = np.linspace(0, len(stops) - 1, n)
     mixed = [np.interp(positions, range(len(stops)), ch) for ch in channels]
@@ -469,14 +470,7 @@ _TICK_TAG = "rstack-ticks"  # axis description marker; pk.figure uses it to alig
 
 def nice_ticks(
     lo: float, hi: float, width: float, min_labels: int = 5, max_labels: int = 10
-) -> tuple[tuple[float, float], list[float], list[float]]:
-    """Domain, all tick values, and labelled tick values for a linear axis.
-
-    The domain ends exactly at the data max (hi), which is always a labelled tick
-    (e.g. 18.7M). Other labels sit on a 1-2-2.5-5 step from the start; one too close to
-    the end is dropped in its favour. As many labels as fit at ~100 px each, clamped to
-    [min_labels, max_labels]. One unlabelled tick sits between neighbouring labels.
-    """
+) -> tuple[tuple[float, float], list[float], list[float], list[float]]:
     n_max = int(np.clip(round(width / 100), min_labels, max_labels))
     span = hi - lo if hi > lo else (abs(hi) or 1.0)
     e0 = int(np.floor(np.log10(span))) - 2
@@ -494,9 +488,17 @@ def nice_ticks(
         if len(majors) <= n_max:
             break
     majors = [float(round(v, 12)) for v in majors]
-    minors = [(a + b) / 2 for a, b in zip(majors, majors[1:]) if b - a > 0.75 * step]
+    half = step / 2
+    lattice = [start + i * half for i in range(int(np.floor((hi - start) / half)) + 1)]
+    min_gap = 10 / width * (hi - start)
+    minors = [
+        v
+        for v in lattice
+        if all(abs(v - m) > 1e-9 * step for m in majors) and hi - v >= min_gap
+    ]
     values = sorted({*majors, *(float(round(v, 12)) for v in minors)})
-    return (start, float(hi)), values, majors
+    on_step = [v for v in values if abs(v / step - round(v / step)) < 1e-9]
+    return (start, float(hi)), values, majors, on_step
 
 
 def linear_axis(
@@ -505,8 +507,9 @@ def linear_axis(
     """Scale + axis for a linear x (or y) per nice_ticks: domain from the start tick to
     exactly the data max, labelled ticks (the end always labelled), shorter unlabelled
     ticks in between. Used by default for x in curves()/points()."""
-    (start, end), values, majors = nice_ticks(lo, hi, width)
+    (start, end), values, majors, on_step = nice_ticks(lo, hi, width)
     major = f"indexof({json.dumps(majors)}, datum.value) >= 0"
+    strong = f"indexof({json.dumps(on_step)}, datum.value) >= 0"
     label = {
         "si": SI_LABEL_EXPR,
         "percent": "format(datum.value, '.0%')",
@@ -519,7 +522,7 @@ def linear_axis(
         ),  # else Vega thins explicit values down to the theme's count
         labelExpr=f"{major} ? ({label}) : ''",
         tickSize={"condition": {"test": major, "value": 5}, "value": 3},
-        gridOpacity={"condition": {"test": major, "value": 1}, "value": 0.45},
+        gridOpacity={"condition": {"test": strong, "value": 1}, "value": 0.45},
         description=f"{_TICK_TAG}:{fmt}",
     )
     return alt.Scale(domain=[start, end], nice=False, zero=False), axis
@@ -629,7 +632,7 @@ def ema(
     return out, span
 
 
-Stat = Literal["auto", "mean", "iqm"]
+Stat = Literal["auto", "mean", "iqm", "minmax"]
 
 
 def _summ(values: np.ndarray, stat: str) -> tuple[float, float, float]:
@@ -642,6 +645,8 @@ def _summ(values: np.ndarray, stat: str) -> tuple[float, float, float]:
         lo, hi = np.quantile(v, [0.25, 0.75])
         return c, float(lo), float(hi)
     m = float(np.mean(v))
+    if stat == "minmax":
+        return m, float(np.min(v)), float(np.max(v))
     if n < 2:
         return m, m, m
     h = float(scipy.stats.sem(v) * scipy.stats.t.ppf(0.975, n - 1))
@@ -661,6 +666,8 @@ def aggregate(
 
     stat="auto" picks ONE statistic for the whole figure from the smallest seed count:
     >= IQM_MIN_SEEDS -> IQM with IQR band, else mean with 95% t-interval band.
+    stat="minmax" is the mean with a band from the lowest to the highest seed: for few
+    seeds (e.g. 3) where the t-interval is too wide to read. Say so in the caption.
     With one seed, lo == hi == center (no band). x=None for one-value-per-seed summaries.
     If seeds don't share x values, they are aligned onto a common grid first.
     """

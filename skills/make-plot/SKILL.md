@@ -38,7 +38,7 @@ one-off styling.
    - When to refetch: only when the user asks, when runs were still running at fetch time, or when the requested runs or metrics aren't in the cache. The template's `--refresh` flag does this.
    - Remember the script path for the rest of the session, so "regenerate that plot" means rerunning it.
    - For wandb: use `run.history(keys=[...], samples=N)`, not `scan_history`, and filter to finished runs.
-3. Shape the data: `pk.ema` (curves only), then `pk.aggregate`. Alignment of seeds that log at different steps happens inside `aggregate`. Use these instead of hand-rolled statistics or Vega-Lite's `extent="ci"` bands.
+3. Shape the data: `pk.ema` (curves only), then `pk.aggregate`. Alignment of seeds that log at different steps happens inside `aggregate`. Use these instead of hand-rolled statistics or Vega-Lite's `extent="ci"` bands. By default the band is the IQR around the IQM with 5 or more seeds, else a 95% interval around the mean. If that interval is too wide to read (e.g. 3 seeds), use `stat="minmax"`: mean with a band from the lowest to the highest seed.
 4. Build the chart: `pk.enable()`, then `pk.curves(...)`, `pk.points(...)`, or plain Altair with the `pk` tokens.
 5. Run it.
 6. Look at the PNG yourself first and fix anything that fails the checklist below. Don't show the user a figure you haven't checked.
@@ -88,7 +88,7 @@ Never change font sizes per chart. Pick a size preset instead.
 
 The hue representing the main result is always `pk.OURS`, first in the legend.
 A single baseline or control is `pk.BASELINE`. `pk.categorical(2)` retrieves `pk.OURS` and `pk.BASELINE`. Three or more conditions use `pk.categorical(n)` in its fixed order.
-Ordered sweeps use `pk.sequential(n)`: up to 6 shades.
+Ordered sweeps (any numeric setting) always use `pk.sequential(n)`, in both themes: up to 6 shades of the primary, passed as `colors=dict(zip(levels, pk.sequential(len(levels))))`. The ramp follows the theme, so call it after `pk.enable()`. Never substitute `pk.categorical` for a sweep, as it loses the ordering. If the shades are hard to read, that is a bug: fix it in `plotkit.py`.
 Reference lines use `pk.reference(value, label)`, and are not in the legend.
 Pin colours to names: always pass `order=` (primary first) or `colors={name: hex}`, so a condition keeps its colour across every figure in a set.
 
