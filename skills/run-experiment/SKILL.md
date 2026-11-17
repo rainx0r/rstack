@@ -12,15 +12,14 @@ Workflow:
 1. Check the experiment setup
 2. Load related compute skills
 3. Plan the runs
-4. Give the user a rundown
-5. Run the experiment
-6. Close out
+4. Run the experiment
+5. Close out
 
 ## Check the experiment setup
 
 Running an experiment depends on already having a very clear hypothesis to test or question to answer, and code to run. If neither are clear (e.g. skill was invoked with a very vague prompt and no experiment entrypoint exists), defer the user to the `rstack:design-experiment` skill and do not run the experiment.
 
-Also check the project's `AGENTS.md`, or `EXPERIMENTS.md`, if either file exists, for additional context and instructions, e.g. fany experiment trackers to update or where to describe the final results.
+Also check the project's `AGENTS.md`, or `EXPERIMENTS.md`, if either file exists, for additional context and instructions, e.g. any experiment trackers to update or where to describe the final results.
 
 If the user did not explicitly specify which compute to use, and it is not trivially inferrable from surrounding context (e.g. previous skill invocations in the same thread), ask.
 
@@ -37,12 +36,6 @@ Debug runs should not log to wandb (wandb mode: disabled). Every other run shoul
 Infer wandb entity and project from context. If unclear, ask the user. Add runs to a group that clearly marks the experiment. Make sure each run has a name that clearly differentiates it, following repository and existing wandb project conventions as much as possible. Avoid adding timestamps or other unique identifiers to the run name, except seed number.
 
 Give every run its own run name and checkpoint / logging directories in the compute resource's storage, so runs can't collide or resume from each other. Note how many runs you plan to start, since you'll check the count at the end.
-
-## Give the user a rundown
-
-Before using any compute, restate in your own words what you think the experiment setup, assumptions and hypothesis are. Tell the user which compute resource you intend to use, which runs you plan to start (how many, their names and the wandb group), and what will happen next. Ask for approval from the user to go through with the rest of the process.
-
-Measuring runtime can take a while, so don't wait for an estimate before asking. If the compute skill produces one, share it just before queueing.
 
 ## Run the experiment
 
