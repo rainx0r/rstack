@@ -42,7 +42,7 @@ one-off styling.
 4. Build the chart: `pk.enable()`, then `pk.curves(...)`, `pk.points(...)`, or plain Altair with the `pk` tokens.
 5. Run it.
 6. Look at the PNG yourself first and fix anything that fails the checklist below. Don't show the user a figure you haven't checked.
-7. Send the PNG into the chat with the file-sharing tool (e.g. `SendUserFile`), unless the user said to put it somewhere else.
+7. Present the PNG to the user via your file-sharing tool, an artifact, or a clickable link, unless the user said to put it somewhere else.
 
 ## Formats
 
